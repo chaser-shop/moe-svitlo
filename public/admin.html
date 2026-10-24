@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Моє Світло — Адмінка</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fdf3dc;--card:#fffaee;--amber:#fbb93f;--orange:#f57c00;--ink:#1e2430;--muted:#6b6f78;--line:#f0dfb4}
+*{box-sizing:border-box}
+body{margin:0;font-family:Manrope,system-ui,sans-serif;background:linear-gradient(180deg,#fff7e2,#fdecc4);color:var(--ink);min-height:100vh}
+button{font:inherit;cursor:pointer;border:0}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.wrap{max-width:980px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+header img{width:48px;height:48px;border-radius:50%}
+header h1{font-size:24px;margin:0;flex:1}
+.tabs{display:flex;gap:8px;margin-bottom:16px}
+.tab{padding:10px 20px;border-radius:99px;background:var(--card);border:1.5px solid var(--line);font-weight:700}
+.tab.on{background:var(--amber);border-color:var(--amber)}
+.btn{padding:11px 20px;border-radius:99px;background:var(--amber);font-weight:800;color:var(--ink)}
+.btn.ghost{background:var(--card);border:1.5px solid var(--amber)}
+.btn.danger{background:#fde2dc;color:#b3261e}
+.btn.sm{padding:7px 14px;font-size:13px}
+.panel{background:var(--card);border-radius:24px;padding:18px;margin-bottom:14px}
+.login{max-width:360px;margin:18vh auto 0;text-align:center}
+.login input{margin:14px 0}
+input,select,textarea{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:14px;background:#fff;font:inherit;font-weight:600}
+label{display:block;font-size:13px;font-weight:700;margin:12px 2px 6px}
+.item{display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1.5px solid var(--line)}
+.item:last-child{border:0}
+.thumb{width:64px;height:64px;border-radius:14px;background:#fff3d3;display:grid;place-items:center;font-size:28px;overflow:hidden;flex:none}
+.thumb img{width:100%;height:100%;object-fit:contain}
+.item .info{flex:1;min-width:0}.item .info b{display:block}.item .info small{color:var(--muted);font-weight:600}
+.price{color:var(--orange);font-weight:800;white-space:nowrap}
+.off{opacity:.5}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal{position:fixed;inset:0;background:#0007;display:grid;place-items:center;padding:16px;z-index:10;overflow:auto}
+.modal .panel{width:100%;max-width:520px;margin:0}
+.preview{width:140px;height:140px;border-radius:18px;background:#fff3d3 center/contain no-repeat;margin:8px 0}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.err{color:#b3261e;font-weight:700;margin-top:8px;min-height:1em}
+.st{padding:8px 12px;width:auto}
+@media(max-width:560px){.cols{grid-template-columns:1fr}.item{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let pw = sessionStorage.getItem('pw') || '';
+let S = { tab: 'products', products: [], orders: [], cats: [], edit: null, image: null };
+const STATUS = { new: 'Нове', processing: 'В обробці', shipped: 'Відправлено', done: 'Виконано', cancelled: 'Скасовано' };
+
+const api = async (url, method = 'GET', body) => {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'x-admin-password': pw }, body: body && JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { if (r.status === 401) { pw = ''; sessionStorage.removeItem('pw'); } throw new Error(j.error || 'Помилка'); }
+  return j;
+};
+const thumb = p => `<div class="thumb">${p.hasImage ? `<img src="/api/products/${p._id}/image?v=${new Date(p.updatedAt).getTime()}" alt="">` : (S.cats.find(c => c.id === p.category)?.icon || '💡')}</div>`;
+
+async function refresh() {
+  [S.products, S.orders] = await Promise.all([api('/api/admin/products'), api('/api/admin/orders')]);
+  draw();
+}
+
+function draw() {
+  if (!pw) return loginView();
+  const list = S.tab === 'products' ? productsView() : ordersView();
+  $('#root').innerHTML = `<header><img src="/logo.png" alt=""><h1>Адмінка · Моє Світло</h1><button class="btn ghost sm" id="out">Вийти</button></header>
+    <div class="tabs"><button class="tab ${S.tab === 'products' ? 'on' : ''}" data-tab="products">Товари (${S.products.length})</button>
+    <button class="tab ${S.tab === 'orders' ? 'on' : ''}" data-tab="orders">Замовлення (${S.orders.length})</button></div>${list}${S.edit ? modal() : ''}`;
+}
+
+function loginView() {
+  $('#root').innerHTML = `<form class="panel login" id="login"><img src="/logo.png" width="96" alt=""><h2>Вхід для адміністратора</h2>
+    <input type="password" id="pw" placeholder="Пароль" autofocus><button class="btn" style="width:100%">Увійти</button><div class="err" id="err"></div></form>`;
+}
+
+function productsView() {
+  return `<div class="panel"><button class="btn" data-new>+ Додати товар</button>
+    ${S.products.map(p => `<div class="item ${p.inStock ? '' : 'off'}">${thumb(p)}<div class="info"><b>${esc(p.name)}</b>
+      <small>${esc(S.cats.find(c => c.id === p.category)?.name || p.category)}${p.inStock ? '' : ' · немає в наявності'}</small></div>
+      <div class="price">${p.price} ₴</div><button class="btn ghost sm" data-edit="${p._id}">Змінити</button><button class="btn danger sm" data-del="${p._id}">Видалити</button></div>`).join('') || '<p>Товарів ще немає.</p>'}</div>`;
+}
+
+function ordersView() {
+  return S.orders.map(o => `<div class="panel"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <b>№${o._id.slice(-6)} · ${new Date(o.createdAt).toLocaleString('uk-UA')}</b>
+    <select class="st" data-status="${o._id}">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${o.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+    <p style="margin:8px 0"><b>${esc(o.name)}</b>, ${esc(o.phone)}<br>${esc(o.address)}${o.comment ? `<br><i>${esc(o.comment)}</i>` : ''}</p>
+    ${o.items.map(i => `<div>${esc(i.name)} × ${i.qty} — ${i.price * i.qty} ₴</div>`).join('')}<div class="price" style="margin-top:8px">Разом: ${o.total} ₴</div></div>`).join('') || '<div class="panel">Замовлень ще немає.</div>';
+}
+
+function modal() {
+  const p = S.edit;
+  const prev = S.image || (p._id && p.hasImage ? `/api/products/${p._id}/image?v=${new Date(p.updatedAt).getTime()}` : '');
+  return `<div class="modal"><form class="panel" id="pform"><h2 style="margin-top:0">${p._id ? 'Редагувати товар' : 'Новий товар'}</h2>
+    <label>Назва</label><input name="name" required value="${esc(p.name)}">
+    <label>Опис</label><textarea name="description" rows="3">${esc(p.description)}</textarea>
+    <div class="cols"><div><label>Ціна, ₴</label><input name="price" type="number" min="0" step="1" required value="${p.price ?? ''}"></div>
+    <div><label>Категорія</label><select name="category">${S.cats.map(c => `<option value="${c.id}" ${p.category === c.id ? 'selected' : ''}>${c.icon} ${c.name}</option>`).join('')}</select></div></div>
+    <label>Фото</label><input type="file" id="file" accept="image/*"><div class="preview" id="prev" style="${prev ? `background-image:url('${prev}')` : ''}"></div>
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="inStock" style="width:auto" ${p.inStock !== false ? 'checked' : ''}> В наявності</label>
+    <div class="err" id="err"></div><div class="row"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn">Зберегти</button></div></form></div>`;
+}
+
+// Стискаємо фото до 900px, щоб воно легко жило в MongoDB
+function resize(file) {
+  return new Promise((ok, fail) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 900 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k;
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); ok(c.toDataURL('image/webp', .85));
+    };
+    img.onerror = () => fail(new Error('Не вдалося прочитати зображення'));
+    img.src = url;
+  });
+}
+
+document.addEventListener('click', async e => {
+  const t = e.target.closest('button'); if (!t) return;
+  const d = t.dataset;
+  if (d.tab) { S.tab = d.tab; draw(); }
+  else if (d.new !== undefined) { S.edit = { category: S.cats[0]?.id, inStock: true }; S.image = null; draw(); }
+  else if (d.edit) { S.edit = S.products.find(p => p._id === d.edit); S.image = null; draw(); }
+  else if (d.close !== undefined) { S.edit = null; draw(); }
+  else if (d.del) { if (confirm('Видалити цей товар?')) { await api('/api/admin/products/' + d.del, 'DELETE'); refresh(); } }
+  else if (t.id === 'out') { pw = ''; sessionStorage.removeItem('pw'); draw(); }
+});
+
+document.addEventListener('change', async e => {
+  if (e.target.id === 'file' && e.target.files[0]) {
+    try { S.image = await resize(e.target.files[0]); $('#prev').style.backgroundImage = `url('${S.image}')`; }
+    catch (err) { $('#err').textContent = err.message; }
+  }
+  if (e.target.dataset.status) await api('/api/admin/orders/' + e.target.dataset.status, 'PATCH', { status: e.target.value });
+});
+
+document.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (e.target.id === 'login') {
+    pw = $('#pw').value;
+    try { await api('/api/admin/products'); sessionStorage.setItem('pw', pw); S.cats = (await (await fetch('/api/config')).json()).categories; refresh(); }
+    catch (err) { pw = ''; $('#err').textContent = err.message; }
+  }
+  if (e.target.id === 'pform') {
+    const f = Object.fromEntries(new FormData(e.target));
+    const body = { ...f, inStock: !!f.inStock, price: Number(f.price), image: S.image };
+    try {
+      S.edit._id ? await api('/api/admin/products/' + S.edit._id, 'PUT', body) : await api('/api/admin/products', 'POST', body);
+      S.edit = null; S.image = null; refresh();
+    } catch (err) { $('#err').textContent = err.message; }
+  }
+});
+
+(async () => {
+  S.cats = (await (await fetch('/api/config')).json()).categories;
+  if (pw) { try { await refresh(); } catch { draw(); } } else draw();
+})();
+</script>
+</body>
+</html>
