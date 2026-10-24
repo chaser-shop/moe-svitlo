@@ -23,3 +23,9 @@ services:
         sync: false
       - key: WEBAPP_URL
         sync: false
+      - key: NOVA_POSHTA_API_KEY
+        sync: false
+      - key: MONO_TOKEN
+        sync: false
+      - key: PAYMENT_CARD
+        sync: false

@@ -4,7 +4,8 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 const path = require('path');
 
-const { BOT_TOKEN, MONGO_URI, ADMIN_PASSWORD, ADMIN_CHAT_ID, WEBAPP_URL, SUPPORT_USERNAME = '', PORT = 3000 } = process.env;
+const { BOT_TOKEN, MONGO_URI, ADMIN_PASSWORD, ADMIN_CHAT_ID, WEBAPP_URL, SUPPORT_USERNAME = '', PORT = 3000, NOVA_POSHTA_API_KEY, MONO_TOKEN, PAYMENT_CARD } = process.env;
+const BASE_URL = (process.env.RENDER_EXTERNAL_URL || WEBAPP_URL || '').replace(/\/$/, '');
 if (!BOT_TOKEN || !MONGO_URI || !ADMIN_PASSWORD) {
   console.error('Заповніть BOT_TOKEN, MONGO_URI та ADMIN_PASSWORD у файлі .env');
   process.exit(1);
@@ -26,6 +27,10 @@ const Product = mongoose.model('Product', productSchema);
 const Order = mongoose.model('Order', new mongoose.Schema({
   tgId: Number, tgName: String,
   name: String, phone: String, address: String, comment: String,
+  delivery: { city: String, cityRef: String, warehouse: String, warehouseRef: String },
+  payment: { type: String, enum: ['cod', 'prepaid'], default: 'cod' },
+  paymentStatus: { type: String, enum: ['cod', 'pending', 'paid', 'failed'], default: 'cod' },
+  invoiceId: String,
   items: [{ productId: mongoose.Schema.Types.ObjectId, name: String, price: Number, qty: Number }],
   total: Number,
   status: { type: String, default: 'new', enum: ['new', 'processing', 'shipped', 'done', 'cancelled'] },
@@ -91,12 +96,66 @@ app.get('/api/products/:id/image', wrap(async (req, res) => {
   res.set('Content-Type', p.imageMime).set('Cache-Control', 'public, max-age=31536000, immutable').send(p.imageData);
 }));
 
+// Нова пошта (ключ API лишається на сервері)
+const np = (modelName, calledMethod, methodProperties) => {
+  if (!NOVA_POSHTA_API_KEY) throw new Error('Нова пошта не налаштована (NOVA_POSHTA_API_KEY)');
+  return fetch('https://api.novaposhta.ua/v2.0/json/', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: NOVA_POSHTA_API_KEY, modelName, calledMethod, methodProperties }),
+  }).then(r => r.json()).then(j => { if (!j.success) throw new Error(j.errors?.[0] || 'Помилка Нової пошти'); return j.data; });
+};
+app.get('/api/np/cities', wrap(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json([]);
+  const d = await np('Address', 'searchSettlements', { CityName: q, Limit: '15' });
+  res.json((d[0]?.Addresses || []).filter(a => a.Warehouses !== 0).map(a => ({ ref: a.DeliveryCity, name: a.Present })));
+}));
+app.get('/api/np/warehouses', wrap(async (req, res) => {
+  if (!req.query.cityRef) return res.json([]);
+  const d = await np('Address', 'getWarehouses', { CityRef: String(req.query.cityRef), FindByString: String(req.query.q || ''), Limit: '60', Page: '1' });
+  res.json(d.map(w => ({ ref: w.Ref, name: w.Description })));
+}));
+
+// Mono Acquiring (повна оплата карткою)
+async function monoInvoice(order) {
+  const r = await fetch('https://api.monobank.ua/api/merchant/invoice/create', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Token': MONO_TOKEN },
+    body: JSON.stringify({
+      amount: Math.round(order.total * 100), ccy: 980,
+      merchantPaymInfo: { reference: String(order._id), destination: `Замовлення №${String(order._id).slice(-6)} · Моє Світло` },
+      redirectUrl: BASE_URL, webHookUrl: `${BASE_URL}/api/pay/mono-webhook`,
+    }),
+  }).then(r => r.json());
+  if (!r.pageUrl) throw new Error(r.errText || 'Не вдалося створити рахунок');
+  order.invoiceId = r.invoiceId; await order.save();
+  return r.pageUrl;
+}
+// Вебхук лише «будить» сервер: статус перевіряємо власним запитом із нашим токеном, тож підробити оплату не можна
+app.post('/api/pay/mono-webhook', async (req, res) => {
+  res.sendStatus(200);
+  try {
+    const id = req.body?.invoiceId;
+    if (!id || !MONO_TOKEN) return;
+    const st = await fetch('https://api.monobank.ua/api/merchant/invoice/status?invoiceId=' + encodeURIComponent(id), { headers: { 'X-Token': MONO_TOKEN } }).then(r => r.json());
+    const o = await Order.findOne({ invoiceId: id });
+    if (!o) return;
+    if (st.status === 'success' && o.paymentStatus !== 'paid') {
+      o.paymentStatus = 'paid'; await o.save();
+      if (ADMIN_CHAT_ID) tg('sendMessage', { chat_id: ADMIN_CHAT_ID, text: `✅ Оплачено замовлення №${String(o._id).slice(-6)} — ${o.total} ₴` });
+    } else if (['failure', 'expired', 'reversed'].includes(st.status)) { o.paymentStatus = 'failed'; await o.save(); }
+  } catch (e) { console.error('mono-webhook:', e.message); }
+});
+
 // Замовлення (потрібна валідна Telegram-сесія)
 app.post('/api/orders', wrap(async (req, res) => {
   const user = tgUser(req.get('x-init-data'));
   if (!user) return res.status(401).json({ error: 'Відкрийте магазин через Telegram' });
-  const { items = [], name, phone, address, comment } = req.body;
-  if (!name || !phone || !address || !items.length) return res.status(400).json({ error: 'Заповніть імʼя, телефон і адресу' });
+  const { items = [], name, phone, city, cityRef, warehouse, warehouseRef, payment, comment } = req.body;
+  const ph = String(phone || '').replace(/[\s()-]/g, '');
+  if (!name || !/^\+?380\d{9}$/.test(ph)) return res.status(400).json({ error: 'Вкажіть імʼя та телефон у форматі +380XXXXXXXXX' });
+  if (!cityRef || !warehouseRef || !city || !warehouse) return res.status(400).json({ error: 'Оберіть місто та відділення Нової пошти' });
+  if (!['cod', 'prepaid'].includes(payment)) return res.status(400).json({ error: 'Оберіть спосіб оплати' });
+  if (!items.length) return res.status(400).json({ error: 'Кошик порожній' });
 
   const products = await Product.find({ _id: { $in: items.map(i => i.id) }, inStock: true }).lean();
   const lines = items.map(i => {
@@ -108,17 +167,26 @@ app.post('/api/orders', wrap(async (req, res) => {
   const total = lines.reduce((s, l) => s + l.price * l.qty, 0);
   const order = await Order.create({
     tgId: user.id, tgName: [user.first_name, user.last_name].filter(Boolean).join(' '),
-    name, phone, address, comment, items: lines, total,
+    name, phone: ph, comment, items: lines, total, payment,
+    paymentStatus: payment === 'cod' ? 'cod' : 'pending',
+    delivery: { city, cityRef, warehouse, warehouseRef },
+    address: `Нова пошта: ${city}, ${warehouse}`,
   });
+  const num = String(order._id).slice(-6);
+  const out = { ok: true, id: order._id, num, total };
+  if (payment === 'prepaid') {
+    if (MONO_TOKEN && BASE_URL) { try { out.payUrl = await monoInvoice(order); } catch (e) { console.error('mono:', e.message); out.payError = true; } }
+    else if (PAYMENT_CARD) out.payCard = PAYMENT_CARD;
+  }
   if (ADMIN_CHAT_ID) {
     tg('sendMessage', {
       chat_id: ADMIN_CHAT_ID,
-      text: `🛒 Нове замовлення №${String(order._id).slice(-6)}\n${name}, ${phone}\n${address}\n\n` +
+      text: `🛒 Нове замовлення №${num}\n${name}, ${ph}\n📦 ${order.address}\n💳 ${payment === 'cod' ? 'Накладений платіж' : 'Повна оплата (очікує оплату)'}\n\n` +
         lines.map(l => `• ${l.name} × ${l.qty} = ${l.price * l.qty} ₴`).join('\n') + `\n\nРазом: ${total} ₴` +
         (comment ? `\nКоментар: ${comment}` : ''),
     });
   }
-  res.json({ ok: true, id: order._id, total });
+  res.json(out);
 }));
 
 app.get('/api/orders/my', wrap(async (req, res) => {
@@ -149,7 +217,10 @@ app.delete('/api/admin/products/:id', adminOnly, wrap(async (req, res) => {
 }));
 app.get('/api/admin/orders', adminOnly, wrap(async (_, res) => res.json(await Order.find().sort('-createdAt').limit(200).lean())));
 app.patch('/api/admin/orders/:id', adminOnly, wrap(async (req, res) => {
-  await Order.findByIdAndUpdate(req.params.id, { status: req.body.status }, { runValidators: true });
+  const upd = {};
+  if (req.body.status) upd.status = req.body.status;
+  if (req.body.paymentStatus) upd.paymentStatus = req.body.paymentStatus;
+  await Order.findByIdAndUpdate(req.params.id, upd, { runValidators: true });
   res.json({ ok: true });
 }));
 

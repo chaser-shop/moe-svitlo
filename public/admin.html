@@ -54,6 +54,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let pw = sessionStorage.getItem('pw') || '';
 let S = { tab: 'products', products: [], orders: [], cats: [], edit: null, image: null };
+const PAY = { cod: 'Накладений платіж', pending: 'Очікує оплату', paid: 'Оплачено', failed: 'Помилка оплати' };
 const STATUS = { new: 'Нове', processing: 'В обробці', shipped: 'Відправлено', done: 'Виконано', cancelled: 'Скасовано' };
 
 const api = async (url, method = 'GET', body) => {
@@ -93,7 +94,7 @@ function ordersView() {
   return S.orders.map(o => `<div class="panel"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <b>№${o._id.slice(-6)} · ${new Date(o.createdAt).toLocaleString('uk-UA')}</b>
     <select class="st" data-status="${o._id}">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${o.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-    <p style="margin:8px 0"><b>${esc(o.name)}</b>, ${esc(o.phone)}<br>${esc(o.address)}${o.comment ? `<br><i>${esc(o.comment)}</i>` : ''}</p>
+    <p style="margin:8px 0"><b>${esc(o.name)}</b>, ${esc(o.phone)}<br>📦 ${esc(o.address)}<br>💳 ${o.payment === 'cod' ? 'Накладений платіж' : 'Повна оплата'}: <select class="st" data-pay="${o._id}" ${o.payment === 'cod' ? 'disabled' : ''}>${Object.entries(PAY).filter(([k]) => o.payment === 'cod' ? k === 'cod' : k !== 'cod').map(([k, v]) => `<option value="${k}" ${o.paymentStatus === k ? 'selected' : ''}>${v}</option>`).join('')}</select>${o.comment ? `<br><i>${esc(o.comment)}</i>` : ''}</p>
     ${o.items.map(i => `<div>${esc(i.name)} × ${i.qty} — ${i.price * i.qty} ₴</div>`).join('')}<div class="price" style="margin-top:8px">Разом: ${o.total} ₴</div></div>`).join('') || '<div class="panel">Замовлень ще немає.</div>';
 }
 
@@ -142,6 +143,7 @@ document.addEventListener('change', async e => {
     catch (err) { $('#err').textContent = err.message; }
   }
   if (e.target.dataset.status) await api('/api/admin/orders/' + e.target.dataset.status, 'PATCH', { status: e.target.value });
+  if (e.target.dataset.pay) await api('/api/admin/orders/' + e.target.dataset.pay, 'PATCH', { paymentStatus: e.target.value });
 });
 
 document.addEventListener('submit', async e => {
