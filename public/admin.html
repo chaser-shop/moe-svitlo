@@ -7,9 +7,10 @@
 <title>Моє Світло — Адмінка</title>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#fdf3dc;--card:#fffaee;--amber:#fbb93f;--orange:#f57c00;--ink:#1e2430;--muted:#6b6f78;--line:#f0dfb4}
+:root{color-scheme:light dark;--bg:#eef1f3;--card:#ffffff;--amber:#e9b44c;--orange:#a8650a;--ink:#1f2933;--muted:#5f6b76;--line:#dde3e8;--input:#f7f9fa;--thumb:#eef1f3;--danger:#b3261e;--dangerbg:#fbe9e7}
+@media(prefers-color-scheme:dark){:root{--bg:#14181c;--card:#1d2328;--amber:#d4a14a;--orange:#e3b365;--ink:#e6eaee;--muted:#98a3ad;--line:#2b343b;--input:#12161a;--thumb:#12161a;--danger:#f2a29b;--dangerbg:#3a2321}}
 *{box-sizing:border-box}
-body{margin:0;font-family:Manrope,system-ui,sans-serif;background:linear-gradient(180deg,#fff7e2,#fdecc4);color:var(--ink);min-height:100vh}
+body{margin:0;font-family:Manrope,system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh}
 button{font:inherit;cursor:pointer;border:0}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
 .wrap{max-width:980px;margin:0 auto;padding:20px 16px 60px}
@@ -18,19 +19,19 @@ header img{width:48px;height:48px;border-radius:50%}
 header h1{font-size:24px;margin:0;flex:1}
 .tabs{display:flex;gap:8px;margin-bottom:16px}
 .tab{padding:10px 20px;border-radius:99px;background:var(--card);border:1.5px solid var(--line);font-weight:700}
-.tab.on{background:var(--amber);border-color:var(--amber)}
-.btn{padding:11px 20px;border-radius:99px;background:var(--amber);font-weight:800;color:var(--ink)}
+.tab.on{background:var(--amber);border-color:var(--amber);color:#1f2933}
+.btn{padding:11px 20px;border-radius:99px;background:var(--amber);font-weight:800;color:#1f2933}
 .btn.ghost{background:var(--card);border:1.5px solid var(--amber)}
-.btn.danger{background:#fde2dc;color:#b3261e}
+.btn.danger{background:var(--dangerbg);color:var(--danger)}
 .btn.sm{padding:7px 14px;font-size:13px}
-.panel{background:var(--card);border-radius:24px;padding:18px;margin-bottom:14px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:14px}
 .login{max-width:360px;margin:18vh auto 0;text-align:center}
 .login input{margin:14px 0}
-input,select,textarea{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:14px;background:#fff;font:inherit;font-weight:600}
+input,select,textarea{width:100%;padding:12px 14px;border:1.5px solid var(--line);border-radius:14px;background:var(--input);color:var(--ink);font:inherit;font-weight:600}
 label{display:block;font-size:13px;font-weight:700;margin:12px 2px 6px}
 .item{display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1.5px solid var(--line)}
 .item:last-child{border:0}
-.thumb{width:64px;height:64px;border-radius:14px;background:#fff3d3;display:grid;place-items:center;font-size:28px;overflow:hidden;flex:none}
+.thumb{width:64px;height:64px;border-radius:14px;background:var(--thumb);display:grid;place-items:center;font-size:28px;overflow:hidden;flex:none}
 .thumb img{width:100%;height:100%;object-fit:contain}
 .item .info{flex:1;min-width:0}.item .info b{display:block}.item .info small{color:var(--muted);font-weight:600}
 .price{color:var(--orange);font-weight:800;white-space:nowrap}
@@ -38,9 +39,9 @@ label{display:block;font-size:13px;font-weight:700;margin:12px 2px 6px}
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .modal{position:fixed;inset:0;background:#0007;display:grid;place-items:center;padding:16px;z-index:10;overflow:auto}
 .modal .panel{width:100%;max-width:520px;margin:0}
-.preview{width:140px;height:140px;border-radius:18px;background:#fff3d3 center/contain no-repeat;margin:8px 0}
+.preview{width:140px;height:140px;border-radius:18px;background:var(--thumb) center/contain no-repeat;margin:8px 0}
 .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
-.err{color:#b3261e;font-weight:700;margin-top:8px;min-height:1em}
+.err{color:var(--danger);font-weight:700;margin-top:8px;min-height:1em}
 .st{padding:8px 12px;width:auto}
 @media(max-width:560px){.cols{grid-template-columns:1fr}.item{flex-wrap:wrap}}
 </style>
